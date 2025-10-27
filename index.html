@@ -1,0 +1,932 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>분산 스위치 마이그레이션</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            text-align: center;
+            color: #2a5298;
+            margin-bottom: 10px;
+            font-size: 2em;
+        }
+
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 1.1em;
+        }
+
+        .steps-nav {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 40px;
+            position: relative;
+        }
+
+        .steps-nav::before {
+            content: '';
+            position: absolute;
+            top: 25px;
+            left: 50px;
+            right: 50px;
+            height: 3px;
+            background: #e5e7eb;
+            z-index: 0;
+        }
+
+        .step-indicator {
+            flex: 1;
+            text-align: center;
+            position: relative;
+            z-index: 1;
+        }
+
+        .step-circle {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background: #e5e7eb;
+            color: #999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 10px;
+            font-weight: bold;
+            font-size: 1.2em;
+            transition: all 0.3s;
+        }
+
+        .step-indicator.active .step-circle {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            transform: scale(1.2);
+        }
+
+        .step-indicator.completed .step-circle {
+            background: #4ade80;
+            color: white;
+        }
+
+        .step-label {
+            font-size: 0.9em;
+            color: #666;
+            font-weight: 500;
+        }
+
+        .workspace {
+            background: #f9fafb;
+            border-radius: 15px;
+            padding: 30px;
+            min-height: 500px;
+            position: relative;
+        }
+
+        .network-diagram {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 40px;
+            margin-top: 20px;
+        }
+
+        .switch-container {
+            background: white;
+            border-radius: 12px;
+            padding: 25px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+
+        .switch-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #e5e7eb;
+        }
+
+        .switch-icon {
+            font-size: 2em;
+        }
+
+        .switch-title {
+            font-size: 1.2em;
+            font-weight: bold;
+            color: #1f2937;
+        }
+
+        .port-group {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 12px;
+            color: white;
+            cursor: pointer;
+            transition: all 0.3s;
+            opacity: 0;
+            transform: translateY(20px);
+        }
+
+        .port-group.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .port-group:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .port-group-name {
+            font-weight: bold;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .port-group-detail {
+            font-size: 0.85em;
+            opacity: 0.9;
+            margin-left: 24px;
+        }
+
+        .vmnic-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .vmnic {
+            background: rgba(255,255,255,0.2);
+            padding: 5px 12px;
+            border-radius: 15px;
+            font-size: 0.85em;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .migration-arrow {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 3em;
+            color: #667eea;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .migration-arrow.active {
+            opacity: 1;
+            animation: bounce 1s ease-in-out infinite;
+        }
+
+        @keyframes bounce {
+            0%, 100% { transform: translate(-50%, -50%) translateX(0); }
+            50% { transform: translate(-50%, -50%) translateX(10px); }
+        }
+
+        .controls {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            margin-top: 30px;
+        }
+
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 35px;
+            border-radius: 25px;
+            font-size: 1.1em;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+
+        button:hover:not(:disabled) {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 20px rgba(0,0,0,0.3);
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .status-message {
+            text-align: center;
+            padding: 20px;
+            background: linear-gradient(135deg, #e0c3fc 0%, #8ec5fc 100%);
+            border-radius: 10px;
+            color: #2a5298;
+            font-weight: bold;
+            margin-top: 20px;
+        }
+
+        .wizard-content {
+            display: none;
+        }
+
+        .wizard-content.active {
+            display: block;
+        }
+
+        .config-panel {
+            background: white;
+            border-radius: 10px;
+            padding: 25px;
+            margin-top: 20px;
+        }
+
+        .config-item {
+            margin-bottom: 20px;
+        }
+
+        .config-label {
+            font-weight: bold;
+            color: #374151;
+            margin-bottom: 8px;
+            display: block;
+        }
+
+        .config-input {
+            width: 100%;
+            padding: 10px 15px;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            font-size: 1em;
+            transition: border-color 0.3s;
+        }
+
+        .config-input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .pg-creation-list {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .pg-create-item {
+            background: #f9fafb;
+            border: 2px solid #e5e7eb;
+            border-radius: 10px;
+            padding: 20px;
+            transition: all 0.3s;
+        }
+
+        .pg-create-item.completed {
+            background: #f0fdf4;
+            border-color: #4ade80;
+        }
+
+        .adapter-assignment {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .adapter-box {
+            background: white;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 12px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .adapter-box:hover {
+            border-color: #667eea;
+            transform: translateY(-2px);
+        }
+
+        .adapter-box.selected {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-color: #667eea;
+        }
+
+        .progress-indicator {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: #667eea;
+            font-weight: bold;
+        }
+
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(102, 126, 234, 0.3);
+            border-top-color: #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>🔄 vSwitch0 → 분산 스위치 마이그레이션</h1>
+    <p class="subtitle">표준 스위치에서 분산 스위치로 네트워크 구성 전환하기</p>
+
+    <div class="steps-nav">
+        <div class="step-indicator active" id="stepInd1">
+            <div class="step-circle">1</div>
+            <div class="step-label">분산 스위치 생성</div>
+        </div>
+        <div class="step-indicator" id="stepInd2">
+            <div class="step-circle">2</div>
+            <div class="step-label">포트 그룹 생성</div>
+        </div>
+        <div class="step-indicator" id="stepInd3">
+            <div class="step-circle">3</div>
+            <div class="step-label">어댑터 할당</div>
+        </div>
+        <div class="step-indicator" id="stepInd4">
+            <div class="step-circle">4</div>
+            <div class="step-label">포트 마이그레이션</div>
+        </div>
+        <div class="step-indicator" id="stepInd5">
+            <div class="step-circle">5</div>
+            <div class="step-label">완료</div>
+        </div>
+    </div>
+
+    <div class="workspace">
+        <!-- Step 1: Create DSwitch -->
+        <div class="wizard-content active" id="step1">
+            <h2 style="margin-bottom: 20px; color: #1f2937;">📡 분산 스위치 생성</h2>
+            <div class="config-panel">
+                <div class="config-item">
+                    <label class="config-label">분산 스위치 이름</label>
+                    <input type="text" class="config-input" value="Prod_DSwitch-DVUplinks" readonly>
+                </div>
+                <div class="config-item">
+                    <label class="config-label">버전</label>
+                    <input type="text" class="config-input" value="7.0.0" readonly>
+                </div>
+                <div class="config-item">
+                    <label class="config-label">업링크 포트 수</label>
+                    <input type="text" class="config-input" value="8" readonly>
+                </div>
+            </div>
+            <div id="createProgress" style="display: none; margin-top: 20px; text-align: center;">
+                <div class="progress-indicator" style="justify-content: center;">
+                    <div class="spinner"></div>
+                    <span>분산 스위치 생성 중...</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 2: Create Port Groups -->
+        <div class="wizard-content" id="step2">
+            <h2 style="margin-bottom: 20px; color: #1f2937;">🔌 포트 그룹 생성</h2>
+            <div class="pg-creation-list">
+                <div class="pg-create-item" id="pgMgmt">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <div style="font-weight: bold; font-size: 1.1em; margin-bottom: 5px;">📡 MGMT-PG (관리용)</div>
+                            <div style="color: #666; font-size: 0.9em;">VMkernel 관리 포트용 포트 그룹</div>
+                        </div>
+                        <div id="mgmtStatus" style="color: #94a3b8;">대기 중</div>
+                    </div>
+                </div>
+                <div class="pg-create-item" id="pgVMnet">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <div style="font-weight: bold; font-size: 1.1em; margin-bottom: 5px;">🌐 VMnet-PG (가상 머신용)</div>
+                            <div style="color: #666; font-size: 0.9em;">VM 네트워크 통신용 포트 그룹</div>
+                        </div>
+                        <div id="vmnetStatus" style="color: #94a3b8;">대기 중</div>
+                    </div>
+                </div>
+                <div class="pg-create-item" id="pgVMotion">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <div style="font-weight: bold; font-size: 1.1em; margin-bottom: 5px;">🚀 vMotion-PG (vMotion용)</div>
+                            <div style="color: #666; font-size: 0.9em;">Live Migration 전용 포트 그룹</div>
+                        </div>
+                        <div id="vmotionStatus" style="color: #94a3b8;">대기 중</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 3: Assign Adapters -->
+        <div class="wizard-content" id="step3">
+            <h2 style="margin-bottom: 20px; color: #1f2937;">🔧 물리 어댑터 할당</h2>
+            <div class="config-panel">
+                <div class="config-label">업링크에 할당할 물리 어댑터 선택 (클릭하여 선택/해제)</div>
+
+                <div style="margin-bottom: 25px;">
+                    <div style="font-weight: bold; color: #667eea; margin-bottom: 10px;">📡 관리용 (MGMT-PG) - 어댑터를 선택하세요</div>
+                    <div class="adapter-assignment" style="grid-template-columns: repeat(3, 1fr);">
+                        <div class="adapter-box" data-purpose="mgmt" data-vmnic="vmnic0" onclick="toggleAdapter(this)">
+                            <div style="font-size: 1.5em; margin-bottom: 5px;">🔌</div>
+                            <div style="font-weight: bold;">vmnic0</div>
+                            <div style="font-size: 0.8em; color: #666;">1 Gbps</div>
+                        </div>
+                        <div class="adapter-box" data-purpose="mgmt" data-vmnic="vmnic1" onclick="toggleAdapter(this)">
+                            <div style="font-size: 1.5em; margin-bottom: 5px;">🔌</div>
+                            <div style="font-weight: bold;">vmnic1</div>
+                            <div style="font-size: 0.8em; color: #666;">1 Gbps</div>
+                        </div>
+                        <div class="adapter-box" data-purpose="mgmt" data-vmnic="vmnic2" onclick="toggleAdapter(this)">
+                            <div style="font-size: 1.5em; margin-bottom: 5px;">🔌</div>
+                            <div style="font-weight: bold;">vmnic2</div>
+                            <div style="font-size: 0.8em; color: #666;">1 Gbps</div>
+                        </div>
+                        <div class="adapter-box" data-purpose="mgmt" data-vmnic="vmnic3" onclick="toggleAdapter(this)">
+                            <div style="font-size: 1.5em; margin-bottom: 5px;">🔌</div>
+                            <div style="font-weight: bold;">vmnic3</div>
+                            <div style="font-size: 0.8em; color: #666;">1 Gbps</div>
+                        </div>
+                        <div class="adapter-box" data-purpose="mgmt" data-vmnic="vmnic4" onclick="toggleAdapter(this)">
+                            <div style="font-size: 1.5em; margin-bottom: 5px;">🔌</div>
+                            <div style="font-weight: bold;">vmnic4</div>
+                            <div style="font-size: 0.8em; color: #666;">1 Gbps</div>
+                        </div>
+                        <div class="adapter-box" data-purpose="mgmt" data-vmnic="vmnic5" onclick="toggleAdapter(this)">
+                            <div style="font-size: 1.5em; margin-bottom: 5px;">🔌</div>
+                            <div style="font-weight: bold;">vmnic5</div>
+                            <div style="font-size: 0.8em; color: #666;">1 Gbps</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="margin-bottom: 25px;">
+                    <div style="font-weight: bold; color: #22c55e; margin-bottom: 10px;">🌐 가상 머신용 (VMnet-PG) - 어댑터를 선택하세요</div>
+                    <div class="adapter-assignment" style="grid-template-columns: repeat(3, 1fr);">
+                        <div class="adapter-box" data-purpose="vm" data-vmnic="vmnic0" onclick="toggleAdapter(this)">
+                            <div style="font-size: 1.5em; margin-bottom: 5px;">🔌</div>
+                            <div style="font-weight: bold;">vmnic0</div>
+                            <div style="font-size: 0.8em; color: #666;">1 Gbps</div>
+                        </div>
+                        <div class="adapter-box" data-purpose="vm" data-vmnic="vmnic1" onclick="toggleAdapter(this)">
+                            <div style="font-size: 1.5em; margin-bottom: 5px;">🔌</div>
+                            <div style="font-weight: bold;">vmnic1</div>
+                            <div style="font-size: 0.8em; color: #666;">1 Gbps</div>
+                        </div>
+                        <div class="adapter-box" data-purpose="vm" data-vmnic="vmnic2" onclick="toggleAdapter(this)">
+                            <div style="font-size: 1.5em; margin-bottom: 5px;">🔌</div>
+                            <div style="font-weight: bold;">vmnic2</div>
+                            <div style="font-size: 0.8em; color: #666;">1 Gbps</div>
+                        </div>
+                        <div class="adapter-box" data-purpose="vm" data-vmnic="vmnic3" onclick="toggleAdapter(this)">
+                            <div style="font-size: 1.5em; margin-bottom: 5px;">🔌</div>
+                            <div style="font-weight: bold;">vmnic3</div>
+                            <div style="font-size: 0.8em; color: #666;">1 Gbps</div>
+                        </div>
+                        <div class="adapter-box" data-purpose="vm" data-vmnic="vmnic4" onclick="toggleAdapter(this)">
+                            <div style="font-size: 1.5em; margin-bottom: 5px;">🔌</div>
+                            <div style="font-weight: bold;">vmnic4</div>
+                            <div style="font-size: 0.8em; color: #666;">1 Gbps</div>
+                        </div>
+                        <div class="adapter-box" data-purpose="vm" data-vmnic="vmnic5" onclick="toggleAdapter(this)">
+                            <div style="font-size: 1.5em; margin-bottom: 5px;">🔌</div>
+                            <div style="font-weight: bold;">vmnic5</div>
+                            <div style="font-size: 0.8em; color: #666;">1 Gbps</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="margin-bottom: 20px;">
+                    <div style="font-weight: bold; color: #f59e0b; margin-bottom: 10px;">🚀 vMotion용 (vMotion-PG) - 어댑터를 선택하세요</div>
+                    <div class="adapter-assignment" style="grid-template-columns: repeat(3, 1fr);">
+                        <div class="adapter-box" data-purpose="vmotion" data-vmnic="vmnic0" onclick="toggleAdapter(this)">
+                            <div style="font-size: 1.5em; margin-bottom: 5px;">🔌</div>
+                            <div style="font-weight: bold;">vmnic0</div>
+                            <div style="font-size: 0.8em; color: #666;">1 Gbps</div>
+                        </div>
+                        <div class="adapter-box" data-purpose="vmotion" data-vmnic="vmnic1" onclick="toggleAdapter(this)">
+                            <div style="font-size: 1.5em; margin-bottom: 5px;">🔌</div>
+                            <div style="font-weight: bold;">vmnic1</div>
+                            <div style="font-size: 0.8em; color: #666;">1 Gbps</div>
+                        </div>
+                        <div class="adapter-box" data-purpose="vmotion" data-vmnic="vmnic2" onclick="toggleAdapter(this)">
+                            <div style="font-size: 1.5em; margin-bottom: 5px;">🔌</div>
+                            <div style="font-weight: bold;">vmnic2</div>
+                            <div style="font-size: 0.8em; color: #666;">1 Gbps</div>
+                        </div>
+                        <div class="adapter-box" data-purpose="vmotion" data-vmnic="vmnic3" onclick="toggleAdapter(this)">
+                            <div style="font-size: 1.5em; margin-bottom: 5px;">🔌</div>
+                            <div style="font-weight: bold;">vmnic3</div>
+                            <div style="font-size: 0.8em; color: #666;">1 Gbps</div>
+                        </div>
+                        <div class="adapter-box" data-purpose="vmotion" data-vmnic="vmnic4" onclick="toggleAdapter(this)">
+                            <div style="font-size: 1.5em; margin-bottom: 5px;">🔌</div>
+                            <div style="font-weight: bold;">vmnic4</div>
+                            <div style="font-size: 0.8em; color: #666;">1 Gbps</div>
+                        </div>
+                        <div class="adapter-box" data-purpose="vmotion" data-vmnic="vmnic5" onclick="toggleAdapter(this)">
+                            <div style="font-size: 1.5em; margin-bottom: 5px;">🔌</div>
+                            <div style="font-weight: bold;">vmnic5</div>
+                            <div style="font-size: 0.8em; color: #666;">1 Gbps</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="padding: 15px; background: #eff6ff; border-radius: 8px; color: #1e40af;">
+                    💡 <strong>팁:</strong> 각 포트 그룹에 최소 2개 이상의 어댑터를 할당하여 네트워크 이중화를 구성하세요.
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 4: Migrate Ports -->
+        <div class="wizard-content" id="step4">
+            <h2 style="margin-bottom: 20px; color: #1f2937;">🔄 포트 마이그레이션</h2>
+            <div class="network-diagram">
+                <div class="switch-container">
+                    <div class="switch-header">
+                        <div class="switch-icon">🔀</div>
+                        <div class="switch-title">vSwitch0 (표준 스위치)</div>
+                    </div>
+                    <div id="vswitch0Ports">
+                        <div class="port-group visible" data-pg="mgmt">
+                            <div class="port-group-name">📡 Management Network</div>
+                            <div class="port-group-detail">VMkernel 포트 (vmk0)</div>
+                            <div class="vmnic-list">
+                                <div class="vmnic">vmnic0 🟢</div>
+                                <div class="vmnic">vmnic1 🟢</div>
+                            </div>
+                        </div>
+                        <div class="port-group visible" data-pg="vm">
+                            <div class="port-group-name">🌐 VM Network</div>
+                            <div class="port-group-detail">가상 머신 포트</div>
+                            <div class="vmnic-list">
+                                <div class="vmnic">vmnic0 🟢</div>
+                                <div class="vmnic">vmnic1 🟢</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="migration-arrow" id="migrationArrow">➡️</div>
+
+                <div class="switch-container">
+                    <div class="switch-header">
+                        <div class="switch-icon">📡</div>
+                        <div class="switch-title">Prod_DSwitch (분산 스위치)</div>
+                    </div>
+                    <div id="dvswitchPorts">
+                        <!-- 포트 그룹이 여기로 이동됩니다 -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 5: Complete -->
+        <div class="wizard-content" id="step5">
+            <div style="text-align: center; padding: 40px;">
+                <div style="font-size: 5em; margin-bottom: 20px;">✅</div>
+                <h2 style="color: #1f2937; margin-bottom: 15px;">마이그레이션 완료!</h2>
+                <p style="color: #666; font-size: 1.1em; margin-bottom: 30px;">
+                    모든 네트워크 포트가 분산 스위치로 성공적으로 이동되었습니다.
+                </p>
+                <div style="background: #f0fdf4; border: 2px solid #4ade80; border-radius: 10px; padding: 20px; max-width: 600px; margin: 0 auto;">
+                    <div style="font-weight: bold; margin-bottom: 10px; color: #166534;">📊 마이그레이션 요약</div>
+                    <div style="text-align: left; color: #166534;">
+                        <div>✓ 분산 스위치: Prod_DSwitch-DVUplinks</div>
+                        <div>✓ 포트 그룹: MGMT-PG, VMnet-PG, vMotion-PG</div>
+                        <div>✓ 할당된 어댑터: <span id="finalAdapters"></span></div>
+                        <div>✓ 마이그레이션된 포트: 모든 VMkernel 및 VM 포트</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="controls">
+        <button onclick="previousStep()" id="prevBtn" disabled>⬅️ 이전</button>
+        <button onclick="nextStep()" id="nextBtn">다음 ➡️</button>
+        <button onclick="reset()" id="resetBtn" style="background: linear-gradient(135deg, #f59e0b 0%, #ef4444 100%);">🔄 처음부터</button>
+    </div>
+
+    <div class="status-message" id="statusMsg">
+        Step 1: 분산 스위치를 생성하려면 '다음' 버튼을 클릭하세요
+    </div>
+</div>
+
+<script>
+    let currentStep = 1;
+    let selectedAdapters = {
+        mgmt: [],
+        vm: [],
+        vmotion: []
+    };
+
+    function updateStepIndicators() {
+        for (let i = 1; i <= 5; i++) {
+            const indicator = document.getElementById(`stepInd${i}`);
+            indicator.classList.remove('active', 'completed');
+            if (i < currentStep) {
+                indicator.classList.add('completed');
+            } else if (i === currentStep) {
+                indicator.classList.add('active');
+            }
+        }
+    }
+
+    function updateButtons() {
+        const prevBtn = document.getElementById('prevBtn');
+        const nextBtn = document.getElementById('nextBtn');
+
+        prevBtn.disabled = currentStep === 1;
+
+        if (currentStep === 5) {
+            nextBtn.style.display = 'none';
+        } else {
+            nextBtn.style.display = 'inline-block';
+        }
+    }
+
+    function updateStatus(message) {
+        document.getElementById('statusMsg').textContent = message;
+    }
+
+    function sleep(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    function toggleAdapter(element) {
+        if (currentStep !== 3) return;
+
+        element.classList.toggle('selected');
+        const vmnicName = element.getAttribute('data-vmnic');
+        const purpose = element.getAttribute('data-purpose');
+
+        if (element.classList.contains('selected')) {
+            if (!selectedAdapters[purpose].includes(vmnicName)) {
+                selectedAdapters[purpose].push(vmnicName);
+            }
+        } else {
+            selectedAdapters[purpose] = selectedAdapters[purpose].filter(a => a !== vmnicName);
+        }
+    }
+
+    async function nextStep() {
+        const nextBtn = document.getElementById('nextBtn');
+        nextBtn.disabled = true;
+
+        if (currentStep === 1) {
+            // Step 1: Create DSwitch
+            updateStatus('분산 스위치 생성 중...');
+            document.getElementById('createProgress').style.display = 'block';
+            await sleep(2000);
+            document.getElementById('createProgress').style.display = 'none';
+            updateStatus('✅ 분산 스위치가 성공적으로 생성되었습니다!');
+            await sleep(1000);
+
+            currentStep = 2;
+            updateStatus('Step 2: 포트 그룹을 생성하세요');
+        } else if (currentStep === 2) {
+            // Step 2: Create Port Groups
+            updateStatus('포트 그룹 생성 중...');
+
+            const portGroups = [
+                { id: 'pgMgmt', status: 'mgmtStatus', name: 'MGMT-PG' },
+                { id: 'pgVMnet', status: 'vmnetStatus', name: 'VMnet-PG' },
+                { id: 'pgVMotion', status: 'vmotionStatus', name: 'vMotion-PG' }
+            ];
+
+            for (const pg of portGroups) {
+                document.getElementById(pg.status).innerHTML = '<div class="progress-indicator"><div class="spinner"></div> 생성 중...</div>';
+                await sleep(1000);
+                document.getElementById(pg.status).innerHTML = '<span style="color: #4ade80; font-weight: bold;">✅ 완료</span>';
+                document.getElementById(pg.id).classList.add('completed');
+            }
+
+            updateStatus('✅ 모든 포트 그룹이 생성되었습니다!');
+            await sleep(1000);
+
+            currentStep = 3;
+            updateStatus('Step 3: 물리 어댑터를 선택하세요 (클릭하여 선택)');
+        } else if (currentStep === 3) {
+            // Step 3: Assign Adapters
+            const allAdapters = [...selectedAdapters.mgmt, ...selectedAdapters.vm, ...selectedAdapters.vmotion];
+            if (allAdapters.length === 0) {
+                alert('최소 1개 이상의 어댑터를 선택하세요!');
+                nextBtn.disabled = false;
+                return;
+            }
+
+            if (selectedAdapters.mgmt.length === 0 || selectedAdapters.vm.length === 0 || selectedAdapters.vmotion.length === 0) {
+                alert('각 포트 그룹에 최소 1개 이상의 어댑터를 할당하세요!');
+                nextBtn.disabled = false;
+                return;
+            }
+
+            updateStatus(`✅ 어댑터 할당 완료 - 관리용: ${selectedAdapters.mgmt.join(', ')}, VM용: ${selectedAdapters.vm.join(', ')}, vMotion용: ${selectedAdapters.vmotion.join(', ')}`);
+            await sleep(1500);
+
+            currentStep = 4;
+            updateStatus('Step 4: 포트를 분산 스위치로 마이그레이션합니다');
+        } else if (currentStep === 4) {
+            // Step 4: Migrate Ports
+            updateStatus('포트 마이그레이션 시작...');
+            const arrow = document.getElementById('migrationArrow');
+            arrow.classList.add('active');
+
+            await sleep(1000);
+
+            // Migrate Management Network
+            updateStatus('📡 Management Network 마이그레이션 중...');
+            await migratePort('mgmt', 'MGMT-PG', '📡 MGMT-PG', 'VMkernel 포트 (vmk0)', selectedAdapters.mgmt);
+            await sleep(1500);
+
+            // Migrate VM Network
+            updateStatus('🌐 VM Network 마이그레이션 중...');
+            await migratePort('vm', 'VMnet-PG', '🌐 VMnet-PG', '가상 머신 포트', selectedAdapters.vm);
+            await sleep(1500);
+
+            // Add vMotion port
+            updateStatus('🚀 vMotion 포트 추가 중...');
+            const dvswitchPorts = document.getElementById('dvswitchPorts');
+            const vmotionPg = document.createElement('div');
+            vmotionPg.className = 'port-group';
+            vmotionPg.innerHTML = `
+                <div class="port-group-name">🚀 vMotion-PG</div>
+                <div class="port-group-detail">Live Migration 전용 (vmk1)</div>
+                <div class="vmnic-list">
+                    ${selectedAdapters.vmotion.map(a => `<div class="vmnic">${a} 🟡</div>`).join('')}
+                </div>
+            `;
+            dvswitchPorts.appendChild(vmotionPg);
+            await sleep(100);
+            vmotionPg.classList.add('visible');
+
+            arrow.classList.remove('active');
+            updateStatus('✅ 모든 포트가 성공적으로 마이그레이션되었습니다!');
+            await sleep(1500);
+
+            currentStep = 5;
+            const allAdapters = [...new Set([...selectedAdapters.mgmt, ...selectedAdapters.vm, ...selectedAdapters.vmotion])];
+            document.getElementById('finalAdapters').textContent = allAdapters.join(', ');
+            updateStatus('🎉 마이그레이션 완료! 모든 작업이 성공적으로 완료되었습니다.');
+        }
+
+        // Update UI
+        document.querySelectorAll('.wizard-content').forEach(content => {
+            content.classList.remove('active');
+        });
+        document.getElementById(`step${currentStep}`).classList.add('active');
+
+        updateStepIndicators();
+        updateButtons();
+        nextBtn.disabled = false;
+    }
+
+    async function migratePort(pgType, pgName, displayName, detail, adapters) {
+        const vswitch0Ports = document.getElementById('vswitch0Ports');
+        const dvswitchPorts = document.getElementById('dvswitchPorts');
+
+        // Find and remove from vSwitch0
+        const portToMove = vswitch0Ports.querySelector(`[data-pg="${pgType}"]`);
+        if (portToMove) {
+            portToMove.style.opacity = '0.5';
+            await sleep(500);
+            portToMove.remove();
+        }
+
+        // Add to DSwitch
+        const newPort = document.createElement('div');
+        newPort.className = 'port-group';
+        newPort.innerHTML = `
+            <div class="port-group-name">${displayName}</div>
+            <div class="port-group-detail">${detail}</div>
+            <div class="vmnic-list">
+                ${adapters.map(a => `<div class="vmnic">${a} 🟢</div>`).join('')}
+            </div>
+        `;
+        dvswitchPorts.appendChild(newPort);
+        await sleep(100);
+        newPort.classList.add('visible');
+    }
+
+    function previousStep() {
+        if (currentStep > 1) {
+            currentStep--;
+
+            document.querySelectorAll('.wizard-content').forEach(content => {
+                content.classList.remove('active');
+            });
+            document.getElementById(`step${currentStep}`).classList.add('active');
+
+            updateStepIndicators();
+            updateButtons();
+
+            const messages = [
+                '',
+                'Step 1: 분산 스위치를 생성하려면 \'다음\' 버튼을 클릭하세요',
+                'Step 2: 포트 그룹을 생성하세요',
+                'Step 3: 물리 어댑터를 선택하세요',
+                'Step 4: 포트를 분산 스위치로 마이그레이션합니다',
+                '🎉 마이그레이션 완료!'
+            ];
+            updateStatus(messages[currentStep]);
+        }
+    }
+
+    function reset() {
+        currentStep = 1;
+        selectedAdapters = {
+            mgmt: [],
+            vm: [],
+            vmotion: []
+        };
+
+        // Reset all wizard content
+        document.querySelectorAll('.wizard-content').forEach(content => {
+            content.classList.remove('active');
+        });
+        document.getElementById('step1').classList.add('active');
+
+        // Reset port groups
+        document.querySelectorAll('.pg-create-item').forEach(item => {
+            item.classList.remove('completed');
+        });
+        document.getElementById('mgmtStatus').textContent = '대기 중';
+        document.getElementById('mgmtStatus').style.color = '#94a3b8';
+        document.getElementById('vmnetStatus').textContent = '대기 중';
+        document.getElementById('vmnetStatus').style.color = '#94a3b8';
+        document.getElementById('vmotionStatus').textContent = '대기 중';
+        document.getElementById('vmotionStatus').style.color = '#94a3b8';
+
+        // Reset adapters - all deselected by default
+        document.querySelectorAll('.adapter-box').forEach(box => {
+            box.classList.remove('selected');
+        });
+
+        // Reset migration diagram
+        const vswitch0Ports = document.getElementById('vswitch0Ports');
+        vswitch0Ports.innerHTML = `
+            <div class="port-group visible" data-pg="mgmt">
+                <div class="port-group-name">📡 Management Network</div>
+                <div class="port-group-detail">VMkernel 포트 (vmk0)</div>
+                <div class="vmnic-list">
+                    <div class="vmnic">vmnic0 🟢</div>
+                    <div class="vmnic">vmnic1 🟢</div>
+                </div>
+            </div>
+            <div class="port-group visible" data-pg="vm">
+                <div class="port-group-name">🌐 VM Network</div>
+                <div class="port-group-detail">가상 머신 포트</div>
+                <div class="vmnic-list">
+                    <div class="vmnic">vmnic2 🟢</div>
+                    <div class="vmnic">vmnic3 🟢</div>
+                </div>
+            </div>
+        `;
+
+        document.getElementById('dvswitchPorts').innerHTML = '';
+        document.getElementById('migrationArrow').classList.remove('active');
+
+        updateStepIndicators();
+        updateButtons();
+        updateStatus('Step 1: 분산 스위치를 생성하려면 \'다음\' 버튼을 클릭하세요');
+    }
+
+    // Initialize
+    updateStepIndicators();
+    updateButtons();
+</script>
+</body>
+</html>
