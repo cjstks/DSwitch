@@ -360,6 +360,19 @@
         @keyframes spin {
             to { transform: rotate(360deg); }
         }
+
+        .pg-section {
+            margin-bottom: 30px;
+            padding: 20px;
+            background: #f9fafb;
+            border-radius: 12px;
+            border: 2px solid #e5e7eb;
+        }
+
+        .pg-section.has-adapters {
+            border-color: #667eea;
+            background: #f0f4ff;
+        }
     </style>
 </head>
 <body>
@@ -454,10 +467,10 @@
         <div class="wizard-content" id="step3">
             <h2 style="margin-bottom: 20px; color: #1f2937;">🔧 물리 어댑터 할당</h2>
             <div class="config-panel">
-                <div class="config-label">업링크에 할당할 물리 어댑터 선택 (클릭하여 선택/해제)</div>
+                <div class="config-label">업링크에 할당할 물리 어댑터 선택 (원하는 포트 그룹만 선택 가능)</div>
 
-                <div style="margin-bottom: 25px;">
-                    <div style="font-weight: bold; color: #667eea; margin-bottom: 10px;">📡 관리용 (MGMT-PG) - 어댑터를 선택하세요</div>
+                <div class="pg-section" id="mgmtSection">
+                    <div style="font-weight: bold; color: #667eea; margin-bottom: 10px;">📡 관리용 (MGMT-PG) - 선택사항</div>
                     <div class="adapter-assignment" style="grid-template-columns: repeat(3, 1fr);">
                         <div class="adapter-box" data-purpose="mgmt" data-vmnic="vmnic0" onclick="toggleAdapter(this)">
                             <div style="font-size: 1.5em; margin-bottom: 5px;">🔌</div>
@@ -492,8 +505,8 @@
                     </div>
                 </div>
 
-                <div style="margin-bottom: 25px;">
-                    <div style="font-weight: bold; color: #22c55e; margin-bottom: 10px;">🌐 가상 머신용 (VMnet-PG) - 어댑터를 선택하세요</div>
+                <div class="pg-section" id="vmSection">
+                    <div style="font-weight: bold; color: #22c55e; margin-bottom: 10px;">🌐 가상 머신용 (VMnet-PG) - 선택사항</div>
                     <div class="adapter-assignment" style="grid-template-columns: repeat(3, 1fr);">
                         <div class="adapter-box" data-purpose="vm" data-vmnic="vmnic0" onclick="toggleAdapter(this)">
                             <div style="font-size: 1.5em; margin-bottom: 5px;">🔌</div>
@@ -528,8 +541,8 @@
                     </div>
                 </div>
 
-                <div style="margin-bottom: 20px;">
-                    <div style="font-weight: bold; color: #f59e0b; margin-bottom: 10px;">🚀 vMotion용 (vMotion-PG) - 어댑터를 선택하세요</div>
+                <div class="pg-section" id="vmotionSection">
+                    <div style="font-weight: bold; color: #f59e0b; margin-bottom: 10px;">🚀 vMotion용 (vMotion-PG) - 선택사항</div>
                     <div class="adapter-assignment" style="grid-template-columns: repeat(3, 1fr);">
                         <div class="adapter-box" data-purpose="vmotion" data-vmnic="vmnic0" onclick="toggleAdapter(this)">
                             <div style="font-size: 1.5em; margin-bottom: 5px;">🔌</div>
@@ -565,7 +578,7 @@
                 </div>
 
                 <div style="padding: 15px; background: #eff6ff; border-radius: 8px; color: #1e40af;">
-                    💡 <strong>팁:</strong> 각 포트 그룹에 최소 2개 이상의 어댑터를 할당하여 네트워크 이중화를 구성하세요.
+                    💡 <strong>팁:</strong> 원하는 포트 그룹에만 어댑터를 할당할 수 있습니다. 어댑터가 할당된 포트 그룹만 마이그레이션됩니다.
                 </div>
             </div>
         </div>
@@ -619,15 +632,12 @@
                 <div style="font-size: 5em; margin-bottom: 20px;">✅</div>
                 <h2 style="color: #1f2937; margin-bottom: 15px;">마이그레이션 완료!</h2>
                 <p style="color: #666; font-size: 1.1em; margin-bottom: 30px;">
-                    모든 네트워크 포트가 분산 스위치로 성공적으로 이동되었습니다.
+                    선택한 네트워크 포트가 분산 스위치로 성공적으로 이동되었습니다.
                 </p>
                 <div style="background: #f0fdf4; border: 2px solid #4ade80; border-radius: 10px; padding: 20px; max-width: 600px; margin: 0 auto;">
                     <div style="font-weight: bold; margin-bottom: 10px; color: #166534;">📊 마이그레이션 요약</div>
-                    <div style="text-align: left; color: #166534;">
-                        <div>✓ 분산 스위치: Prod_DSwitch-DVUplinks</div>
-                        <div>✓ 포트 그룹: MGMT-PG, VMnet-PG, vMotion-PG</div>
-                        <div>✓ 할당된 어댑터: <span id="finalAdapters"></span></div>
-                        <div>✓ 마이그레이션된 포트: 모든 VMkernel 및 VM 포트</div>
+                    <div style="text-align: left; color: #166534;" id="migrationSummary">
+                        <div>✓ 분산 스위치: Prod_DSwitch</div>
                     </div>
                 </div>
             </div>
@@ -686,6 +696,20 @@
         return new Promise(resolve => setTimeout(resolve, ms));
     }
 
+    function updateSectionHighlight(purpose) {
+        const sections = {
+            mgmt: document.getElementById('mgmtSection'),
+            vm: document.getElementById('vmSection'),
+            vmotion: document.getElementById('vmotionSection')
+        };
+        
+        if (selectedAdapters[purpose].length > 0) {
+            sections[purpose].classList.add('has-adapters');
+        } else {
+            sections[purpose].classList.remove('has-adapters');
+        }
+    }
+
     function toggleAdapter(element) {
         if (currentStep !== 3) return;
 
@@ -700,6 +724,8 @@
         } else {
             selectedAdapters[purpose] = selectedAdapters[purpose].filter(a => a !== vmnicName);
         }
+        
+        updateSectionHighlight(purpose);
     }
 
     async function nextStep() {
@@ -738,27 +764,26 @@
             await sleep(1000);
 
             currentStep = 3;
-            updateStatus('Step 3: 물리 어댑터를 선택하세요 (클릭하여 선택)');
+            updateStatus('Step 3: 원하는 포트 그룹에 물리 어댑터를 선택하세요 (선택사항)');
         } else if (currentStep === 3) {
             // Step 3: Assign Adapters
             const allAdapters = [...selectedAdapters.mgmt, ...selectedAdapters.vm, ...selectedAdapters.vmotion];
             if (allAdapters.length === 0) {
-                alert('최소 1개 이상의 어댑터를 선택하세요!');
+                alert('최소 1개의 포트 그룹에 어댑터를 할당해주세요!');
                 nextBtn.disabled = false;
                 return;
             }
 
-            if (selectedAdapters.mgmt.length === 0 || selectedAdapters.vm.length === 0 || selectedAdapters.vmotion.length === 0) {
-                alert('각 포트 그룹에 최소 1개 이상의 어댑터를 할당하세요!');
-                nextBtn.disabled = false;
-                return;
-            }
-
-            updateStatus(`✅ 어댑터 할당 완료 - 관리용: ${selectedAdapters.mgmt.join(', ')}, VM용: ${selectedAdapters.vm.join(', ')}, vMotion용: ${selectedAdapters.vmotion.join(', ')}`);
+            let statusParts = [];
+            if (selectedAdapters.mgmt.length > 0) statusParts.push(`관리용: ${selectedAdapters.mgmt.join(', ')}`);
+            if (selectedAdapters.vm.length > 0) statusParts.push(`VM용: ${selectedAdapters.vm.join(', ')}`);
+            if (selectedAdapters.vmotion.length > 0) statusParts.push(`vMotion용: ${selectedAdapters.vmotion.join(', ')}`);
+            
+            updateStatus(`✅ 어댑터 할당 완료 - ${statusParts.join(' | ')}`);
             await sleep(1500);
 
             currentStep = 4;
-            updateStatus('Step 4: 포트를 분산 스위치로 마이그레이션합니다');
+            updateStatus('Step 4: 선택한 포트를 분산 스위치로 마이그레이션합니다');
         } else if (currentStep === 4) {
             // Step 4: Migrate Ports
             updateStatus('포트 마이그레이션 시작...');
@@ -767,40 +792,63 @@
 
             await sleep(1000);
 
-            // Migrate Management Network
-            updateStatus('📡 Management Network 마이그레이션 중...');
-            await migratePort('mgmt', 'MGMT-PG', '📡 MGMT-PG', 'VMkernel 포트 (vmk0)', selectedAdapters.mgmt);
-            await sleep(1500);
+            // Migrate only selected port groups
+            if (selectedAdapters.mgmt.length > 0) {
+                updateStatus('📡 Management Network 마이그레이션 중...');
+                await migratePort('mgmt', 'MGMT-PG', '📡 MGMT-PG', 'VMkernel 포트 (vmk0)', selectedAdapters.mgmt);
+                await sleep(1500);
+            }
 
-            // Migrate VM Network
-            updateStatus('🌐 VM Network 마이그레이션 중...');
-            await migratePort('vm', 'VMnet-PG', '🌐 VMnet-PG', '가상 머신 포트', selectedAdapters.vm);
-            await sleep(1500);
+            if (selectedAdapters.vm.length > 0) {
+                updateStatus('🌐 VM Network 마이그레이션 중...');
+                await migratePort('vm', 'VMnet-PG', '🌐 VMnet-PG', '가상 머신 포트', selectedAdapters.vm);
+                await sleep(1500);
+            }
 
-            // Add vMotion port
-            updateStatus('🚀 vMotion 포트 추가 중...');
-            const dvswitchPorts = document.getElementById('dvswitchPorts');
-            const vmotionPg = document.createElement('div');
-            vmotionPg.className = 'port-group';
-            vmotionPg.innerHTML = `
-                <div class="port-group-name">🚀 vMotion-PG</div>
-                <div class="port-group-detail">Live Migration 전용 (vmk1)</div>
-                <div class="vmnic-list">
-                    ${selectedAdapters.vmotion.map(a => `<div class="vmnic">${a} 🟡</div>`).join('')}
-                </div>
-            `;
-            dvswitchPorts.appendChild(vmotionPg);
-            await sleep(100);
-            vmotionPg.classList.add('visible');
+            if (selectedAdapters.vmotion.length > 0) {
+                updateStatus('🚀 vMotion 포트 추가 중...');
+                const dvswitchPorts = document.getElementById('dvswitchPorts');
+                const vmotionPg = document.createElement('div');
+                vmotionPg.className = 'port-group';
+                vmotionPg.innerHTML = `
+                    <div class="port-group-name">🚀 vMotion-PG</div>
+                    <div class="port-group-detail">Live Migration 전용 (vmk1)</div>
+                    <div class="vmnic-list">
+                        ${selectedAdapters.vmotion.map(a => `<div class="vmnic">${a} 🟡</div>`).join('')}
+                    </div>
+                `;
+                dvswitchPorts.appendChild(vmotionPg);
+                await sleep(100);
+                vmotionPg.classList.add('visible');
+                await sleep(1500);
+            }
 
             arrow.classList.remove('active');
-            updateStatus('✅ 모든 포트가 성공적으로 마이그레이션되었습니다!');
+            updateStatus('✅ 선택한 모든 포트가 성공적으로 마이그레이션되었습니다!');
             await sleep(1500);
 
             currentStep = 5;
+            
+            // Create summary
+            const summaryDiv = document.getElementById('migrationSummary');
+            let summaryHTML = '<div>✓ 분산 스위치: Prod_DSwitch</div>';
+            
+            let pgList = [];
+            if (selectedAdapters.mgmt.length > 0) pgList.push('MGMT-PG');
+            if (selectedAdapters.vm.length > 0) pgList.push('VMnet-PG');
+            if (selectedAdapters.vmotion.length > 0) pgList.push('vMotion-PG');
+            
+            if (pgList.length > 0) {
+                summaryHTML += `<div>✓ 마이그레이션된 포트 그룹: ${pgList.join(', ')}</div>`;
+            }
+            
             const allAdapters = [...new Set([...selectedAdapters.mgmt, ...selectedAdapters.vm, ...selectedAdapters.vmotion])];
-            document.getElementById('finalAdapters').textContent = allAdapters.join(', ');
-            updateStatus('🎉 마이그레이션 완료! 모든 작업이 성공적으로 완료되었습니다.');
+            if (allAdapters.length > 0) {
+                summaryHTML += `<div>✓ 할당된 어댑터: ${allAdapters.join(', ')}</div>`;
+            }
+            
+            summaryDiv.innerHTML = summaryHTML;
+            updateStatus('🎉 마이그레이션 완료! 선택한 모든 작업이 성공적으로 완료되었습니다.');
         }
 
         // Update UI
@@ -857,8 +905,8 @@
                 '',
                 'Step 1: 분산 스위치를 생성하려면 \'다음\' 버튼을 클릭하세요',
                 'Step 2: 포트 그룹을 생성하세요',
-                'Step 3: 물리 어댑터를 선택하세요',
-                'Step 4: 포트를 분산 스위치로 마이그레이션합니다',
+                'Step 3: 원하는 포트 그룹에 물리 어댑터를 선택하세요 (선택사항)',
+                'Step 4: 선택한 포트를 분산 스위치로 마이그레이션합니다',
                 '🎉 마이그레이션 완료!'
             ];
             updateStatus(messages[currentStep]);
@@ -893,6 +941,11 @@
         // Reset adapters - all deselected by default
         document.querySelectorAll('.adapter-box').forEach(box => {
             box.classList.remove('selected');
+        });
+        
+        // Reset section highlights
+        document.querySelectorAll('.pg-section').forEach(section => {
+            section.classList.remove('has-adapters');
         });
 
         // Reset migration diagram
